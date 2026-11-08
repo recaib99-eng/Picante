@@ -31,7 +31,6 @@ const getSetting = k => db.prepare('SELECT value FROM settings WHERE key = ?').g
 const slugify = t => t.toString().toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-');
 const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const parse = raw => esc(raw).replace(/\[(https?:\/\/[^\s\]]+)\s+([^\]]+)\]/gi, '<a href="$1" target="_blank" style="color:#60a5fa">$2 ↗</a>').replace(/\((?:véase|v):\s*([^)]+)\)/gi, (_, title) => { const c = title.trim().toLowerCase(); return `(véase: <a href="/tema/${slugify(c)}?q=${encodeURIComponent(c)}">${c}</a>)`; }).replace(/\*([^*]+)\*/g, (_, h) => { const c = h.trim().toLowerCase(); return `<a href="/tema/${slugify(c)}?q=${encodeURIComponent(c)}" style="color:#ef4444;font-weight:bold" title="véase: ${c}">*</a>`; }).replace(/\n/g, '<br>');
-
 function layout(req, body, title = 'Picante') {
   const agenda = db.prepare('SELECT t.title, t.slug, COUNT(e.id) as c FROM topics t LEFT JOIN entries e ON t.id = e.topic_id GROUP BY t.id ORDER BY MAX(e.created_at) DESC LIMIT 35').all();
   const u = req.session.user;
@@ -58,3 +57,64 @@ app.get('/tema/:slug', (req, res) => {
     const pages = Math.ceil(db.prepare(`SELECT COUNT(*) as c FROM entries e ${w}`).get(...p).c / limit);
     const list = db.prepare(`SELECT e.*, u.username, (SELECT COUNT(*) FROM favorites f WHERE f.entry_id=e.id) as fc FROM entries e JOIN users u ON e.user_id=u.id ${w} ${sort === 'chido' ? 'ORDER BY e.likes DESC, e.id ASC' : 'ORDER BY e.id ASC'} LIMIT ? OFFSET ?`).all(...p, limit, offset);
     h += `<div style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:18px"><div style="display:flex;justify-content:space-between"><h2>${topic.title}</h2>${isAdmin ? `<form action="/admin/del-topic" method="POST"><input type="hidden" name="id" value="${topic.id}"><button class="btn" style="padding:3px 8px;font-size:11px">🗑️ Borrar Tema</button></form>` : ''}</div><div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px"><div><a href="/tema/${slug}?sort=all">todos</a> | <a href="/tema/${slug}?sort=chido">🔥 más chidos</a></div><form><input name="b" value="${esc(qIn)}" placeholder="buscar..." style="padding:3px 6px;margin:0"></form></div></div>`;
+    list.forEach(e => { const del = req.session.user && (req.session.user.id === e.user_id || isAdmin); h += `<div class="entry"><div>${parse(e.content)}</div><div class="efoot"><div><button onclick="act(${e.id},'like')">🔥 (${e.likes})</button><button onclick="act(${e.id},'dislike')">💧 (${e.dislikes})</button><button onclick="act(${e.id},'fav')">⭐ (${e.fc})</button>${del ? `<button onclick="act(${e.id},'delete')" style="color:var(--accent)">🗑️</button>` : ''}</div><div><a href="/perfil/${e.username}">@${e.username}</a> · #${e.id}</div></div></div>`; });
+    if (pages > 1) { h += '<div style="margin:15px 0">'; for (let i = 1; i <= pages; i++) h += `<a href="/tema/${slug}?p=${i}&sort=${sort}" style="padding:4px 8px;background:var(--panel);margin-right:4px">${i}</a>`; h += '</div>'; }
+  } else h += `<h2>${esc(rawQ)}</h2><p style="color:var(--muted);margin:10px 0">nadie ha escrito sobre esto todavía.</p>`;
+  if (req.session.user) h += req.session.user.role === 'novice' ? `<div class="box">⏳ Modo novato (çaylak).</div>` : `<form action="/entrada" method="POST" style="margin-top:20px"><input type="hidden" name="title" value="${esc(topic ? topic.title : rawQ)}"><textarea name="content" rows="4" placeholder="échale salsa..." required></textarea><button class="btn">publicar</button></form>`;
+  else h += `<div class="box"><a href="/login">inicia sesión</a> o <a href="/register">regístrate</a> para escribir.</div>`;
+  res.send(layout(req, h, topic ? topic.title : rawQ));app.post('/entrada', (req, res) => {
+  if (!req.session.user || req.session.user.role === 'novice') return res.redirect('/login');
+  const title = (req.body.title || '').trim().toLowerCase(), content = (req.body.content || '').trim();
+  if (!title || !content) return res.redirect('/');
+  const slug = slugify(title); let t = db.prepare('SELECT id FROM topics WHERE slug = ?').get(slug);
+  if (!t) t = { id: db.prepare('INSERT INTO topics (title, slug) VALUES (?, ?)').run(title, slug).lastInsertRowid };
+  db.prepare('INSERT INTO entries (topic_id, user_id, content) VALUES (?, ?, ?)').run(t.id, req.session.user.id, content);
+  res.redirect('/tema/' + slug);
+});
+
+app.post('/api/act', (req, res) => {
+  const { id, a } = req.body, u = req.session.user;
+  if (a === 'like') { db.prepare('UPDATE entries SET likes=likes+1 WHERE id=?').run(id); return res.json({ ok: 1 }); }
+  if (a === 'dislike') { db.prepare('UPDATE entries SET dislikes=dislikes+1 WHERE id=?').run(id); return res.json({ ok: 1 }); }
+  if (!u) return res.json({ err: 'Inicia sesión' });
+  if (a === 'fav') { const ex = db.prepare('SELECT 1 FROM favorites WHERE user_id=? AND entry_id=?').get(u.id, id); ex ? db.prepare('DELETE FROM favorites WHERE user_id=? AND entry_id=?').run(u.id, id) : db.prepare('INSERT INTO favorites VALUES (?,?)').run(u.id, id); return res.json({ ok: 1 }); }
+  if (a === 'delete') { u.role === 'admin' ? db.prepare('DELETE FROM entries WHERE id=?').run(id) : db.prepare('DELETE FROM entries WHERE id=? AND user_id=?').run(id, u.id); return res.json({ ok: 1 }); }
+});
+
+app.get('/admin', (req, res) => {
+  if (req.session.user?.role !== 'admin') return res.status(403).send('Denegado');
+  const nm = getSetting('novice_mode') === '1', users = db.prepare("SELECT * FROM users WHERE role != 'bot'").all();
+  res.send(layout(req, `<h2 style="color:var(--gold);margin-bottom:15px">🛡️ Admin</h2><div class="box"><form action="/admin/novice" method="POST"><button class="btn">${nm ? '🔓 Desactivar Çaylak Modu' : '🔒 Activar Çaylak Modu'}</button></form></div><div class="box"><table>${users.map(x => `<tr><td>@${x.username} (${x.role})</td><td>${x.role !== 'admin' ? `<form action="/admin/u" method="POST"><input type="hidden" name="id" value="${x.id}"><button name="a" value="ban">${x.is_banned ? 'Quitar Ban' : '🚫 Ban'}</button><button name="a" value="user">Autor</button></form>` : 'Admin'}</td></tr>`).join('')}</table></div>`));
+});
+app.post('/admin/novice', (req, res) => { if (req.session.user?.role === 'admin') db.prepare("UPDATE settings SET value=? WHERE key='novice_mode'").run(getSetting('novice_mode') === '1' ? '0' : '1'); res.redirect('/admin'); });
+app.post('/admin/u', (req, res) => { if (req.session.user?.role === 'admin') { if (req.body.a === 'ban') db.prepare('UPDATE users SET is_banned=CASE WHEN is_banned=1 THEN 0 ELSE 1 END WHERE id=?').run(req.body.id); if (req.body.a === 'user') db.prepare("UPDATE users SET role='user' WHERE id=?").run(req.body.id); } res.redirect('/admin'); });
+app.post('/admin/del-topic', (req, res) => { if (req.session.user?.role === 'admin') { db.prepare('DELETE FROM entries WHERE topic_id=?').run(req.body.id); db.prepare('DELETE FROM topics WHERE id=?').run(req.body.id); } res.redirect('/'); });
+
+app.get('/perfil/:u', (req, res) => {
+  const p = db.prepare('SELECT * FROM users WHERE username=?').get(req.params.u.toLowerCase()); if (!p) return res.send(layout(req, '<p>No encontrado</p>'));
+  const list = db.prepare('SELECT e.*,t.title,t.slug FROM entries e JOIN topics t ON e.topic_id=t.id WHERE e.user_id=? ORDER BY e.id DESC').all(p.id);
+  let h = `<div class="box"><h2>@${p.username}</h2><p style="color:var(--muted)">${esc(p.bio || '')}</p>${req.session.user && req.session.user.id !== p.id ? `<form action="/msg" method="POST" style="display:flex;gap:5px;margin-top:10px"><input type="hidden" name="to" value="${p.id}"><input name="body" placeholder="mensaje..." style="margin:0" required><button class="btn">enviar</button></form>` : ''}</div>`;
+  list.forEach(e => h += `<div class="entry"><b><a href="/tema/${e.slug}">${e.title}</a></b><div>${parse(e.content)}</div></div>`);
+  res.send(layout(req, h));
+});
+app.get('/mensajes', (req, res) => {
+  if (!req.session.user) return res.redirect('/login');
+  const m = db.prepare('SELECT m.*,u.username FROM messages m JOIN users u ON m.sender_id=u.id WHERE m.receiver_id=? ORDER BY m.id DESC').all(req.session.user.id);
+  db.prepare('UPDATE messages SET is_read=1 WHERE receiver_id=?').run(req.session.user.id);
+  res.send(layout(req, `<h2>📩 Mensajes</h2>` + m.map(x => `<div class="box"><b>@${x.username}:</b> ${esc(x.body)}</div>`).join('')));
+});
+app.post('/msg', (req, res) => { if (req.session.user && req.body.body) db.prepare('INSERT INTO messages (sender_id,receiver_id,body) VALUES (?,?,?)').run(req.session.user.id, req.body.to, req.body.body.trim()); res.redirect('back'); });
+
+app.get('/register', (req, res) => { const c = db.prepare("SELECT COUNT(*) as c FROM users WHERE role!='bot'").get().c; res.send(layout(req, `<div class="box" style="max-width:400px"><h2>Registro 🌶️</h2>${c === 0 ? '<p style="color:var(--gold)">👑 Primer usuario = Admin</p>' : ''}<form action="/register" method="POST"><input type="text" name="username" placeholder="usuario" required><input type="password" name="password" placeholder="contraseña" required><input type="text" name="bio" placeholder="bio (opcional)"><button class="btn" style="width:100%">crear cuenta</button></form></div>`)); });
+app.post('/register', (req, res) => {
+  const u = (req.body.username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, ''); if (!u || !req.body.password) return res.redirect('/register');
+  const c = db.prepare("SELECT COUNT(*) as c FROM users WHERE role!='bot'").get().c, r = c === 0 ? 'admin' : (getSetting('novice_mode') === '1' ? 'novice' : 'user');
+  try { const info = db.prepare('INSERT INTO users (username,password,role,bio) VALUES (?,?,?,?)').run(u, bcrypt.hashSync(req.body.password, 10), r, (req.body.bio || '').trim()); req.session.user = { id: info.lastInsertRowid, username: u, role: r }; res.redirect(r === 'admin' ? '/admin' : '/'); } catch (e) { res.send(layout(req, '<p>Usuario existe.</p>')); }
+});
+app.get('/login', (req, res) => res.send(layout(req, `<div class="box" style="max-width:400px"><h2>Entrar</h2><form action="/login" method="POST"><input type="text" name="username" placeholder="usuario" required><input type="password" name="password" placeholder="contraseña" required><button class="btn" style="width:100%">entrar</button></form></div>`)));
+app.post('/login', (req, res) => { const u = db.prepare('SELECT * FROM users WHERE username=?').get((req.body.username || '').trim().toLowerCase()); if (u && bcrypt.compareSync(req.body.password, u.password) && !u.is_banned) { req.session.user = { id: u.id, username: u.username, role: u.role }; return res.redirect('/'); } res.send(layout(req, '<p>Error de acceso.</p>')); });
+app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/'); });
+app.listen(process.env.PORT || 3000, '0.0.0.0', () => console.log('Picante Live!'));
+
+});
+
