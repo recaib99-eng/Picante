@@ -18,6 +18,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_id INTEGER NOT NULL, receiver_id INTEGER NOT NULL, body TEXT NOT NULL, is_read INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
 `);
 db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('novice_mode', '0')").run();
+const getSetting = k => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value || '0';
+const slugify = t => t.toString().toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-');
+const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const parse = raw => esc(raw).replace(/\[(https?:\/\/[^\s\]]+)\s+([^\]]+)\]/gi, '<a href="$1" target="_blank" style="color:#60a5fa">$2 ↗</a>').replace(/\((?:véase|v):\s*([^)]+)\)/gi, (_, title) => { const c = title.trim().toLowerCase(); return `(véase: <a href="/tema/${slugify(c)}?q=${encodeURIComponent(c)}">${c}</a>)`; }).replace(/\*([^*]+)\*/g, (_, h) => { const c = h.trim().toLowerCase(); return `<a href="/tema/${slugify(c)}?q=${encodeURIComponent(c)}" style="color:#ef4444;font-weight:bold" title="véase: ${c}">*</a>`; }).replace(/\n/g, '<br>');
 
 if (db.prepare('SELECT COUNT(*) as c FROM topics').get().c === 0) {
   const bot = db.prepare('INSERT INTO users (username, password, role, bio) VALUES (?, ?, ?, ?)').run('picante_bot', bcrypt.hashSync('bot999', 10), 'bot', 'sistema oficial');
@@ -27,10 +31,6 @@ if (db.prepare('SELECT COUNT(*) as c FROM topics').get().c === 0) {
   });
 }
 
-const getSetting = k => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value || '0';
-const slugify = t => t.toString().toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-');
-const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const parse = raw => esc(raw).replace(/\[(https?:\/\/[^\s\]]+)\s+([^\]]+)\]/gi, '<a href="$1" target="_blank" style="color:#60a5fa">$2 ↗</a>').replace(/\((?:véase|v):\s*([^)]+)\)/gi, (_, title) => { const c = title.trim().toLowerCase(); return `(véase: <a href="/tema/${slugify(c)}?q=${encodeURIComponent(c)}">${c}</a>)`; }).replace(/\*([^*]+)\*/g, (_, h) => { const c = h.trim().toLowerCase(); return `<a href="/tema/${slugify(c)}?q=${encodeURIComponent(c)}" style="color:#ef4444;font-weight:bold" title="véase: ${c}">*</a>`; }).replace(/\n/g, '<br>');
 function layout(req, body, title = 'Picante') {
   const agenda = db.prepare('SELECT t.title, t.slug, COUNT(e.id) as c FROM topics t LEFT JOIN entries e ON t.id = e.topic_id GROUP BY t.id ORDER BY MAX(e.created_at) DESC LIMIT 35').all();
   const u = req.session.user;
