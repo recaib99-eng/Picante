@@ -117,6 +117,36 @@ app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/'); });
 app.listen(process.env.PORT || 3000, '0.0.0.0', () => console.log('Picante Live!'));
 
 });
+app.get('/register', (req, res) => {
+  const c = db.prepare("SELECT COUNT(*) as c FROM users WHERE role!='bot'").get().c;
+  res.send(layout(req, `<div class="box" style="max-width:400px"><h2>Registro 🌶️</h2>${c === 0 ? '<p style="color:var(--gold)">👑 Primer usuario = Admin</p>' : ''}<form action="/register" method="POST"><input type="text" name="username" placeholder="usuario" required><input type="password" name="password" placeholder="contraseña" required><input type="text" name="bio" placeholder="bio (opcional)"><button class="btn" style="width:100%">crear cuenta</button></form></div>`));
+});
+
+app.post('/register', (req, res) => {
+  const u = (req.body.username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (!u || !req.body.password) return res.redirect('/register');
+  const c = db.prepare("SELECT COUNT(*) as c FROM users WHERE role!='bot'").get().c;
+  const r = c === 0 ? 'admin' : (getSetting('novice_mode') === '1' ? 'novice' : 'user');
+  try {
+    const info = db.prepare('INSERT INTO users (username,password,role,bio) VALUES (?,?,?,?)').run(u, bcrypt.hashSync(req.body.password, 10), r, (req.body.bio || '').trim());
+    req.session.user = { id: info.lastInsertRowid, username: u, role: r };
+    res.redirect(r === 'admin' ? '/admin' : '/');
+  } catch (e) { res.send(layout(req, '<p>Usuario existe. <a href="/register">Volver</a></p>')); }
+});
+
+app.get('/login', (req, res) => {
+  res.send(layout(req, `<div class="box" style="max-width:400px"><h2>Entrar</h2><form action="/login" method="POST"><input type="text" name="username" placeholder="usuario" required><input type="password" name="password" placeholder="contraseña" required><button class="btn" style="width:100%">entrar</button></form></div>`));
+});
+
+app.post('/login', (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE username=?').get((req.body.username || '').trim().toLowerCase());
+  if (u && bcrypt.compareSync(req.body.password, u.password) && !u.is_banned) {
+    req.session.user = { id: u.id, username: u.username, role: u.role };
+    return res.redirect('/');
+  }
+  res.send(layout(req, '<p>Error de acceso. <a href="/login">Volver</a></p>'));
+});
+
 app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/'); });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log('Picante Live on ' + PORT));
