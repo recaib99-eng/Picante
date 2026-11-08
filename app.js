@@ -25,7 +25,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    role TEXT DEFAULT 'user', -- 'admin', 'user', 'novice'
+    role TEXT DEFAULT 'user',
     is_banned INTEGER DEFAULT 0,
     bio TEXT DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -66,11 +66,8 @@ db.exec(`
   );
 `);
 
-// Varsayılan Site Ayarları (Çaylak modu kapalı = '0')
 db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('novice_mode', '0')").run();
 
-// --- BAŞLANGIÇ VERİLERİ (SEEDING) ---
-// Not: Seed verileri için sistem botu oluşturulur, ilk gerçek kayıt olan SEN otomatik ADMIN olursun!
 const topicCount = db.prepare('SELECT COUNT(*) as count FROM topics').get().count;
 if (topicCount === 0) {
   const hash = bcrypt.hashSync('bot-pass-999', 10);
@@ -91,7 +88,6 @@ if (topicCount === 0) {
   });
 }
 
-// --- YARDIMCI FONKSİYONLAR ---
 function getSetting(key) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return row ? row.value : '0';
@@ -122,7 +118,6 @@ function parseEntryContent(rawText) {
   return text.replace(/\n/g, '<br>');
 }
 
-// --- ARAYÜZ ŞABLONU ---
 function renderLayout(req, contentHtml, pageTitle = 'Picante - La neta de México') {
   const agenda = db.prepare(`
     SELECT t.title, t.slug, COUNT(e.id) as entry_count 
@@ -151,7 +146,6 @@ function renderLayout(req, contentHtml, pageTitle = 'Picante - La neta de Méxic
     body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.55; }
     a { color: var(--green); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    
     header { background: var(--panel); border-bottom: 2px solid var(--accent); padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; gap: 10px; }
     .logo { font-size: 21px; font-weight: 900; color: var(--accent); letter-spacing: -0.5px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
     .logo span { color: var(--muted); font-weight: 400; font-size: 12px; }
@@ -161,7 +155,6 @@ function renderLayout(req, contentHtml, pageTitle = 'Picante - La neta de Méxic
     .nav-links { display: flex; gap: 14px; align-items: center; font-size: 13px; white-space: nowrap; }
     .badge { background: var(--accent); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 10px; font-weight: bold; }
     .admin-pill { background: var(--gold); color: #000; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
-
     .container { display: flex; max-width: 1280px; margin: 0 auto; min-height: calc(100vh - 54px); }
     .left-frame { width: 275px; border-right: 1px solid var(--border); padding: 15px; flex-shrink: 0; }
     .left-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 12px; }
@@ -171,16 +164,13 @@ function renderLayout(req, contentHtml, pageTitle = 'Picante - La neta de Méxic
     .topic-list li a { color: var(--text); font-size: 13.5px; line-height: 1.3; }
     .topic-list li a:hover { color: var(--accent); }
     .topic-list li span { color: var(--muted); font-size: 11px; flex-shrink: 0; }
-
     .main-content { flex: 1; padding: 25px 35px; max-width: 950px; }
-    
     .topic-top { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 20px; }
     .topic-title { font-size: 22px; font-weight: bold; color: #fff; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
     .topic-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; font-size: 12px; }
     .filter-pills a { padding: 4px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; color: var(--muted); margin-right: 5px; }
     .filter-pills a.active { border-color: var(--accent); color: var(--accent); font-weight: bold; }
     .in-topic-search input { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 12px; }
-
     .entry { margin-bottom: 26px; padding-bottom: 16px; border-bottom: 1px solid #26262b; }
     .entry-content { font-size: 14.5px; margin-bottom: 12px; word-wrap: break-word; }
     .entry-footer { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap; gap: 8px; }
@@ -188,5 +178,7 @@ function renderLayout(req, contentHtml, pageTitle = 'Picante - La neta de Méxic
     .action-btns button:hover { border-color: var(--accent); color: var(--text); }
     .gizli-bknz { color: var(--accent); font-weight: bold; padding: 0 3px; }
     .ext-link { color: #60a5fa; }
-
     .pagination { display: flex; gap: 6px; margin: 20px 0; }
+    .pagination a { padding: 5px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; }
+    .pagination a.current { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: bold; }
+
