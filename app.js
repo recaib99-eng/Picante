@@ -117,4 +117,7 @@ app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/'); });
 app.listen(process.env.PORT || 3000, '0.0.0.0', () => console.log('Picante Live!'));
 
 });
+app.get('/logout', (req, res) => { req.session.destroy(); res.redirect('/'); });
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => console.log('Picante Live on ' + PORT));
 
